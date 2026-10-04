@@ -77,22 +77,8 @@ def parse_pc(soup) -> dict:
     return rooms
 
 
-def _sp_building_name(item) -> str:
-    """スマホ版: 部屋カードの直前にある見出しを建物名とみなす"""
-    h = item.find_previous(["h2", "h3"])
-    name = _clean_name(h.get_text(" ", strip=True) if h else "")
-    # 建物カード内のタイトルらしきクラスも試す
-    if not name:
-        parent = item.find_parent(class_=re.compile(r"bukken|cassette-wrapper|list-contents"))
-        if parent:
-            for sel in ("[class*='title']", "[class*='name']", "h2", "h3"):
-                name = _clean_name(_txt(parent, sel))
-                if name:
-                    break
-    return name
-
-
 def parse_sp(soup) -> dict:
+    """スマホ版構造。建物名は確実に取れる手がかりが無いため空にする（誤表示を避ける）"""
     rooms = {}
     for item in soup.select(".juko-cassette"):
         a = item.select_one("a[href*='/chintai/']")
@@ -100,7 +86,7 @@ def parse_sp(soup) -> dict:
         if not m:
             continue
         rooms[m.group(1)] = {
-            "name": _sp_building_name(item),
+            "name": "",
             "rent": _txt(item, ".juko-cassette-chinryo__kakaku"),
             "layout": _txt(item, ".juko-cassette-spec"),
             "area": "",
