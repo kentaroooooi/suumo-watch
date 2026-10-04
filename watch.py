@@ -29,6 +29,7 @@ HEADERS = {
 }
 
 ID_RE = re.compile(r"/chintai/((?:jnc|bc)_\d+)/")
+NOISE_RE = re.compile(r"この物件が気になりましたか|写真をもっと見たい|空室状況|問い合わせ|お気に入り")
 
 
 def fetch(url: str) -> str:
@@ -50,10 +51,17 @@ def _txt(node, sel):
     return el.get_text(" ", strip=True) if el else ""
 
 
+def _clean_name(s: str) -> str:
+    s = (s or "").strip()
+    if not s or NOISE_RE.search(s):
+        return ""
+    return s[:60]
+
+
 def parse_pc(soup) -> dict:
     rooms = {}
     for item in soup.select("div.cassetteitem"):
-        name = _txt(item, ".cassetteitem_content-title") or "(物件名不明)"
+        name = _clean_name(_txt(item, ".cassetteitem_content-title"))
         for tr in item.select("tr.js-cassette_link"):
             a = tr.select_one("a[href*='/chintai/']")
             m = ID_RE.search(a["href"]) if a and a.has_attr("href") else None
@@ -69,6 +77,21 @@ def parse_pc(soup) -> dict:
     return rooms
 
 
+def _sp_building_name(item) -> str:
+    """スマホ版: 部屋カードの直前にある見出しを建物名とみなす"""
+    h = item.find_previous(["h2", "h3"])
+    name = _clean_name(h.get_text(" ", strip=True) if h else "")
+    # 建物カード内のタイトルらしきクラスも試す
+    if not name:
+        parent = item.find_parent(class_=re.compile(r"bukken|cassette-wrapper|list-contents"))
+        if parent:
+            for sel in ("[class*='title']", "[class*='name']", "h2", "h3"):
+                name = _clean_name(_txt(parent, sel))
+                if name:
+                    break
+    return name
+
+
 def parse_sp(soup) -> dict:
     rooms = {}
     for item in soup.select(".juko-cassette"):
@@ -76,17 +99,10 @@ def parse_sp(soup) -> dict:
         m = ID_RE.search(a["href"]) if a and a.has_attr("href") else None
         if not m:
             continue
-        name = (
-            _txt(item, ".juko-cassette-appeal")
-            or _txt(item, "h2, h3")
-            or item.get_text(" ", strip=True)[:40]
-        )
-        rent = _txt(item, ".juko-cassette-chinryo__kakaku")
-        spec = _txt(item, ".juko-cassette-spec")
         rooms[m.group(1)] = {
-            "name": name,
-            "rent": rent,
-            "layout": spec,
+            "name": _sp_building_name(item),
+            "rent": _txt(item, ".juko-cassette-chinryo__kakaku"),
+            "layout": _txt(item, ".juko-cassette-spec"),
             "area": "",
             "url": f"https://suumo.jp/chintai/{m.group(1)}/",
         }
@@ -98,7 +114,7 @@ def parse_fallback(html: str) -> dict:
     rooms = {}
     for rid in dict.fromkeys(ID_RE.findall(html)):
         rooms[rid] = {
-            "name": "(詳細はリンク参照)",
+            "name": "",
             "rent": "",
             "layout": "",
             "area": "",
@@ -155,7 +171,8 @@ def notify_line(text: str) -> None:
 
 def fmt(r: dict) -> str:
     spec = " / ".join(x for x in (r.get("rent"), r.get("layout"), r.get("area")) if x)
-    return f"\n{r['name']}\n{spec}\n{r['url']}" if spec else f"\n{r['name']}\n{r['url']}"
+    parts = [p for p in (r.get("name"), spec, r.get("url")) if p]
+    return "\n" + "\n".join(parts)
 
 
 def main() -> None:
