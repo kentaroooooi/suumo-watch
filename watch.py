@@ -5,6 +5,7 @@
 """
 import json
 import os
+import re
 import sys
 import time
 
@@ -22,16 +23,22 @@ HEADERS = {
         "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
     ),
     "Accept-Language": "ja,en;q=0.8",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
 
 
 def fetch(url: str) -> str:
+    last = None
     for i in range(3):
         r = requests.get(url, headers=HEADERS, timeout=30)
+        last = r
+        print(f"fetch attempt {i+1}: status={r.status_code} len={len(r.text)} final_url={r.url}")
         if r.status_code == 200:
             return r.text
         time.sleep(5 * (i + 1))
-    r.raise_for_status()
+    if last is not None:
+        print("response head:", last.text[:500].replace("\n", " "), file=sys.stderr)
+        last.raise_for_status()
     return ""
 
 
@@ -39,7 +46,18 @@ def parse(html: str) -> dict:
     """物件一覧をパースして {部屋ID: 情報} を返す"""
     soup = BeautifulSoup(html, "html.parser")
     rooms = {}
-    for item in soup.select("div.cassetteitem"):
+    items = soup.select("div.cassetteitem")
+    print(f"parse: cassetteitem={len(items)} title={soup.title.get_text(strip=True) if soup.title else '-'}")
+    if not items:
+        # 診断用: ページ内の主要クラス名を出す
+        classes = set()
+        for tag in soup.find_all(True, class_=True)[:2000]:
+            for c in tag.get("class", []):
+                if "cassette" in c or "property" in c or "bukken" in c:
+                    classes.add(c)
+        print("diag classes:", sorted(classes)[:50])
+        print("diag body head:", re.sub(r"\s+", " ", soup.get_text(" ")[:600]))
+    for item in items:
         name = item.select_one(".cassetteitem_content-title")
         name = name.get_text(strip=True) if name else "(物件名不明)"
         addr = item.select_one(".cassetteitem_detail-col1")
@@ -86,20 +104,22 @@ def notify_line(text: str) -> None:
         json={"messages": [{"type": "text", "text": text[:4900]}]},
         timeout=30,
     )
+    print(f"LINE broadcast: status={r.status_code}")
     if r.status_code != 200:
-        print("LINE error:", r.status_code, r.text, file=sys.stderr)
+        print("LINE error:", r.text, file=sys.stderr)
         r.raise_for_status()
 
 
 def main() -> None:
+    known = load_state()
     html = fetch(URL)
     current = parse(html)
     if not current:
         print("WARNING: 物件を1件もパースできませんでした。HTML構造が変わった可能性があります。")
         notify_line("⚠️ SUUMO監視: 物件を取得できませんでした。URLかHTML構造を確認してください。")
+        save_state(known)  # 空でも書き出してコミット工程を通す
         return
 
-    known = load_state()
     first_run = not known
     new_ids = [rid for rid in current if rid not in known]
 
