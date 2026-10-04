@@ -1,6 +1,7 @@
 """SUUMO 新着監視スクリプト
 - SUUMO_URL の検索結果(PC版・新着順)を取得
-- state.json に保存した既知物件と比較し、新着があれば LINE Messaging API で通知
+- state.json に保存した既知物件と比較し、新着があれば LINE Messaging API（ブロードキャスト）で通知
+  ※ 公式アカウントの友だち全員に届く。友だちが自分だけなら実質プッシュ通知と同じ
 """
 import json
 import os
@@ -12,7 +13,6 @@ from bs4 import BeautifulSoup
 
 URL = os.environ["SUUMO_URL"]
 LINE_TOKEN = os.environ["LINE_CHANNEL_ACCESS_TOKEN"]
-LINE_USER_ID = os.environ["LINE_USER_ID"]
 STATE_FILE = "state.json"
 MAX_NOTIFY = 10  # 1回の通知で載せる最大件数
 
@@ -78,12 +78,12 @@ def save_state(state: dict) -> None:
 
 def notify_line(text: str) -> None:
     r = requests.post(
-        "https://api.line.me/v2/bot/message/push",
+        "https://api.line.me/v2/bot/message/broadcast",
         headers={
             "Authorization": f"Bearer {LINE_TOKEN}",
             "Content-Type": "application/json",
         },
-        json={"to": LINE_USER_ID, "messages": [{"type": "text", "text": text[:4900]}]},
+        json={"messages": [{"type": "text", "text": text[:4900]}]},
         timeout=30,
     )
     if r.status_code != 200:
