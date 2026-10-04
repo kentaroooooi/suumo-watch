@@ -1,7 +1,8 @@
 """SUUMO 新着監視スクリプト
-- SUUMO_URL の検索結果(PC版・新着順)を取得
+- SUUMO_URL の検索結果を取得（PC版 / スマホ版どちらの構造にも対応）
 - state.json に保存した既知物件と比較し、新着があれば LINE Messaging API（ブロードキャスト）で通知
   ※ 公式アカウントの友だち全員に届く。友だちが自分だけなら実質プッシュ通知と同じ
+- 取得失敗の警告は24時間に1回まで（LINE無料枠の節約）
 """
 import json
 import os
@@ -15,7 +16,8 @@ from bs4 import BeautifulSoup
 URL = os.environ["SUUMO_URL"]
 LINE_TOKEN = os.environ["LINE_CHANNEL_ACCESS_TOKEN"]
 STATE_FILE = "state.json"
-MAX_NOTIFY = 10  # 1回の通知で載せる最大件数
+MAX_NOTIFY = 10          # 1回の通知で載せる最大件数
+WARN_INTERVAL = 24 * 3600  # 警告通知の最短間隔（秒）
 
 HEADERS = {
     "User-Agent": (
@@ -26,67 +28,108 @@ HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
 
+ID_RE = re.compile(r"/chintai/((?:jnc|bc)_\d+)/")
+
 
 def fetch(url: str) -> str:
     last = None
     for i in range(3):
         r = requests.get(url, headers=HEADERS, timeout=30)
         last = r
-        print(f"fetch attempt {i+1}: status={r.status_code} len={len(r.text)} final_url={r.url}")
+        print(f"fetch attempt {i+1}: status={r.status_code} len={len(r.text)}")
         if r.status_code == 200:
             return r.text
         time.sleep(5 * (i + 1))
     if last is not None:
-        print("response head:", last.text[:500].replace("\n", " "), file=sys.stderr)
         last.raise_for_status()
     return ""
 
 
-def parse(html: str) -> dict:
-    """物件一覧をパースして {部屋ID: 情報} を返す"""
-    soup = BeautifulSoup(html, "html.parser")
+def _txt(node, sel):
+    el = node.select_one(sel) if node else None
+    return el.get_text(" ", strip=True) if el else ""
+
+
+def parse_pc(soup) -> dict:
     rooms = {}
-    items = soup.select("div.cassetteitem")
-    print(f"parse: cassetteitem={len(items)} title={soup.title.get_text(strip=True) if soup.title else '-'}")
-    if not items:
-        # 診断用: ページ内の主要クラス名を出す
-        classes = set()
-        for tag in soup.find_all(True, class_=True)[:2000]:
-            for c in tag.get("class", []):
-                if "cassette" in c or "property" in c or "bukken" in c:
-                    classes.add(c)
-        print("diag classes:", sorted(classes)[:50])
-        print("diag body head:", re.sub(r"\s+", " ", soup.get_text(" ")[:600]))
-    for item in items:
-        name = item.select_one(".cassetteitem_content-title")
-        name = name.get_text(strip=True) if name else "(物件名不明)"
-        addr = item.select_one(".cassetteitem_detail-col1")
-        addr = addr.get_text(" ", strip=True) if addr else ""
+    for item in soup.select("div.cassetteitem"):
+        name = _txt(item, ".cassetteitem_content-title") or "(物件名不明)"
         for tr in item.select("tr.js-cassette_link"):
-            a = tr.select_one("a[href*='/chintai/jnc_']")
-            if not a:
+            a = tr.select_one("a[href*='/chintai/']")
+            m = ID_RE.search(a["href"]) if a and a.has_attr("href") else None
+            if not m:
                 continue
-            href = a["href"]
-            room_id = href.split("/chintai/")[1].split("/")[0]
-            rent = tr.select_one(".cassetteitem_price--rent")
-            layout = tr.select_one(".cassetteitem_madori")
-            area = tr.select_one(".cassetteitem_menseki")
-            rooms[room_id] = {
+            rooms[m.group(1)] = {
                 "name": name,
-                "addr": addr,
-                "rent": rent.get_text(strip=True) if rent else "",
-                "layout": layout.get_text(strip=True) if layout else "",
-                "area": area.get_text(strip=True) if area else "",
-                "url": "https://suumo.jp" + href if href.startswith("/") else href,
+                "rent": _txt(tr, ".cassetteitem_price--rent"),
+                "layout": _txt(tr, ".cassetteitem_madori"),
+                "area": _txt(tr, ".cassetteitem_menseki"),
+                "url": f"https://suumo.jp/chintai/{m.group(1)}/",
             }
+    return rooms
+
+
+def parse_sp(soup) -> dict:
+    rooms = {}
+    for item in soup.select(".juko-cassette"):
+        a = item.select_one("a[href*='/chintai/']")
+        m = ID_RE.search(a["href"]) if a and a.has_attr("href") else None
+        if not m:
+            continue
+        name = (
+            _txt(item, ".juko-cassette-appeal")
+            or _txt(item, "h2, h3")
+            or item.get_text(" ", strip=True)[:40]
+        )
+        rent = _txt(item, ".juko-cassette-chinryo__kakaku")
+        spec = _txt(item, ".juko-cassette-spec")
+        rooms[m.group(1)] = {
+            "name": name,
+            "rent": rent,
+            "layout": spec,
+            "area": "",
+            "url": f"https://suumo.jp/chintai/{m.group(1)}/",
+        }
+    return rooms
+
+
+def parse_fallback(html: str) -> dict:
+    """構造が変わっても物件IDだけは拾う最終手段"""
+    rooms = {}
+    for rid in dict.fromkeys(ID_RE.findall(html)):
+        rooms[rid] = {
+            "name": "(詳細はリンク参照)",
+            "rent": "",
+            "layout": "",
+            "area": "",
+            "url": f"https://suumo.jp/chintai/{rid}/",
+        }
+    return rooms
+
+
+def parse(html: str) -> dict:
+    soup = BeautifulSoup(html, "html.parser")
+    rooms = parse_pc(soup)
+    mode = "pc"
+    if not rooms:
+        rooms = parse_sp(soup)
+        mode = "sp"
+    if not rooms:
+        rooms = parse_fallback(html)
+        mode = "fallback"
+    print(f"parse: mode={mode} rooms={len(rooms)}")
     return rooms
 
 
 def load_state() -> dict:
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE, encoding="utf-8") as f:
-            return json.load(f)
-    return {}
+            data = json.load(f)
+        if "rooms" not in data:  # 旧形式（部屋IDが直下）を変換
+            data = {"rooms": data, "meta": {}}
+        data.setdefault("meta", {})
+        return data
+    return {"rooms": {}, "meta": {}}
 
 
 def save_state(state: dict) -> None:
@@ -110,14 +153,25 @@ def notify_line(text: str) -> None:
         r.raise_for_status()
 
 
+def fmt(r: dict) -> str:
+    spec = " / ".join(x for x in (r.get("rent"), r.get("layout"), r.get("area")) if x)
+    return f"\n{r['name']}\n{spec}\n{r['url']}" if spec else f"\n{r['name']}\n{r['url']}"
+
+
 def main() -> None:
-    known = load_state()
+    state = load_state()
+    known, meta = state["rooms"], state["meta"]
+    now = int(time.time())
+
     html = fetch(URL)
     current = parse(html)
+
     if not current:
-        print("WARNING: 物件を1件もパースできませんでした。HTML構造が変わった可能性があります。")
-        notify_line("⚠️ SUUMO監視: 物件を取得できませんでした。URLかHTML構造を確認してください。")
-        save_state(known)  # 空でも書き出してコミット工程を通す
+        print("WARNING: 物件を1件も取得できませんでした。")
+        if now - meta.get("last_warn", 0) > WARN_INTERVAL:
+            notify_line("⚠️ SUUMO監視: 物件を取得できませんでした。URLかHTML構造を確認してください。")
+            meta["last_warn"] = now
+        save_state(state)
         return
 
     first_run = not known
@@ -127,18 +181,16 @@ def main() -> None:
         notify_line(f"✅ SUUMO監視を開始しました。現在 {len(current)} 件を記録。以降は新着のみ通知します。")
     elif new_ids:
         lines = [f"🆕 SUUMO新着 {len(new_ids)}件"]
-        for rid in new_ids[:MAX_NOTIFY]:
-            r = current[rid]
-            lines.append(f"\n{r['name']}\n{r['rent']} / {r['layout']} / {r['area']}\n{r['url']}")
+        lines += [fmt(current[rid]) for rid in new_ids[:MAX_NOTIFY]]
         if len(new_ids) > MAX_NOTIFY:
             lines.append(f"\n…他 {len(new_ids) - MAX_NOTIFY} 件")
         notify_line("\n".join(lines))
     else:
         print("新着なし")
 
-    # 既知リストを更新（掲載終了分は削除せず残す = 再掲載で再通知しない）
-    known.update(current)
-    save_state(known)
+    known.update(current)  # 掲載終了分は残す（再掲載で再通知しない）
+    meta["last_run"] = now
+    save_state(state)
     print(f"known={len(known)} current={len(current)} new={len(new_ids)}")
 
 
