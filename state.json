@@ -38,7 +38,7 @@
   "jnc_000110139971": {
    "name": "",
    "rent": "14.5万円",
-   "layout": "3LDK ｜ 73.85m² ｜ 1階",
+   "layout": "3LDK ｜ 73.85m² ｜ 1-2階",
    "area": "",
    "url": "https://suumo.jp/chintai/jnc_000110139971/"
   },
@@ -205,6 +205,6 @@
   }
  },
  "meta": {
-  "last_run": 1791272180
+  "last_run": 1791273652
  }
 }
