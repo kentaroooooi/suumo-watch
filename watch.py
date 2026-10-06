@@ -15,6 +15,26 @@ import time
 import requests
 from bs4 import BeautifulSoup
 
+
+def _load_secrets_json() -> None:
+    """workflow から `SECRETS_JSON: ${{ toJSON(secrets) }}` で全 Secret をまとめて受け取る。
+    こうしておくと、新しいサービスを足すときに workflow を編集せず、
+    GitHub の Secrets 追加 + この watch.py の修正だけで済む。
+    個別の環境変数が既に設定されていればそちらを優先する。
+    """
+    raw = os.environ.get("SECRETS_JSON")
+    if not raw:
+        return
+    try:
+        for k, v in json.loads(raw).items():
+            if isinstance(v, str) and v and k not in os.environ:
+                os.environ[k] = v
+    except json.JSONDecodeError:
+        print("SECRETS_JSON の解析に失敗しました", file=sys.stderr)
+
+
+_load_secrets_json()
+
 LINE_TOKEN = os.environ["LINE_CHANNEL_ACCESS_TOKEN"]
 STATE_FILE = "state.json"
 MAX_NOTIFY = 10            # 1回の通知で載せる最大件数（全サービス合計）
