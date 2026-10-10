@@ -31,14 +31,14 @@
   "suumo:jnc_000109157179": {
    "name": "",
    "rent": "14.4万円",
-   "layout": "2SLDK ｜ 67.09m² ｜ 4階",
+   "layout": "2LDK ｜ 67.09m² ｜ 4階",
    "area": "",
    "url": "https://suumo.jp/chintai/jnc_000109157179/"
   },
   "suumo:jnc_000110139971": {
    "name": "",
    "rent": "14.5万円",
-   "layout": "3LDK ｜ 73.85m² ｜ 1-2階",
+   "layout": "3LDK ｜ 73.85m² ｜ 2階",
    "area": "",
    "url": "https://suumo.jp/chintai/jnc_000110139971/"
   },
@@ -94,7 +94,7 @@
   "suumo:jnc_000097766055": {
    "name": "",
    "rent": "10.5万円",
-   "layout": "3LDK ｜ 77.73m² ｜ 2階",
+   "layout": "3LDK ｜ 77.73m² ｜ 1-2階",
    "area": "",
    "url": "https://suumo.jp/chintai/jnc_000097766055/"
   },
@@ -251,10 +251,17 @@
    "layout": "3LDK ｜ 73.38m² ｜ 2階",
    "area": "",
    "url": "https://suumo.jp/chintai/jnc_000110234434/"
+  },
+  "suumo:jnc_000110421919": {
+   "name": "",
+   "rent": "15万円",
+   "layout": "2SLDK ｜ 66.45m² ｜ 4階",
+   "area": "",
+   "url": "https://suumo.jp/chintai/jnc_000110421919/"
   }
  },
  "meta": {
-  "last_run": 1791657520,
-  "last_run:suumo": 1791657520
+  "last_run": 1791658850,
+  "last_run:suumo": 1791658850
  }
 }
