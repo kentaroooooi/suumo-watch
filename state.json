@@ -430,7 +430,7 @@
   "suumo:jnc_000111056747": {
    "name": "",
    "rent": "14.3万円",
-   "layout": "2LDK ｜ 69.7m² ｜ 5階",
+   "layout": "3LDK ｜ 69.7m² ｜ 5階",
    "area": "",
    "url": "https://suumo.jp/chintai/jnc_000111056747/"
   },
@@ -492,8 +492,8 @@
   }
  },
  "meta": {
-  "last_run": 1795431657,
-  "last_run:suumo": 1795431657,
+  "last_run": 1795435252,
+  "last_run:suumo": 1795435252,
   "last_warn:suumo": 1792594854
  }
 }
